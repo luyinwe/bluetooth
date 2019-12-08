@@ -1,0 +1,105 @@
+from bluetooth import *
+import matplotlib.pyplot as plt
+import time
+import struct
+import numpy as np
+import math
+
+# information about NIN M
+MAC_ADDR = "00:06:66:69:BD:65"
+Nsources = 10
+SRCSIZE = 16
+FRAMESIZE = Nsources*SRCSIZE
+Nframes = 1
+
+# initiate bluetooth device
+class device_initiate():
+    def __init__(self, MAC_ADDR):
+        self.ADDR = MAC_ADDR
+        self.block = b''
+    def _prep_fired(self):
+        try:
+            self.socket = BluetoothSocket(RFCOMM)
+            self.socket.bind(('', 0))
+            self.socket.connect((MAC_ADDR, 1))
+            time.sleep(0.05)
+            self.socket.settimeout(0)
+            print("CONNECTED ...")
+        except:
+            print("\nNO SOCKET!!! Trying to continue anyway ...\n")
+            self.socket = None
+
+    def read_data(self):
+        idx = self.block.find(b'ExG0')
+        while len(self.block[idx:]) < FRAMESIZE * Nframes:
+            self.block += self.getBytes(FRAMESIZE)
+            idx = self.block.find(b'ExG0')
+
+        Realdata = b''
+        for i in range(Nframes):
+            for j in range(Nsources):
+                tmp = self.block[(j * SRCSIZE) + (idx):(j * SRCSIZE) + idx + 16]
+                print(repr(tmp))
+                Realdata += self.block[(j * SRCSIZE) + (idx)+4:(j * SRCSIZE) + idx + 16]
+            self.block = self.block[idx + FRAMESIZE:]
+
+        newdata = struct.unpack('>'+'BBBBBBBBBBBB'*Nsources*Nframes, Realdata)
+        return np.array(newdata)
+
+    def getBytes(self,n_bytes):
+        bytes = b''
+        while(len(bytes)<n_bytes):
+            bytes += self.socket.recv(1)
+        return bytes
+
+    def process_data(self,data):
+        n = len(data)
+        newx4 = 0
+        newx5 = 0
+        newx6 = 0
+        newx7 = 0
+
+        newx4 = data[2] * 65536 + data[1] * 256 + data[0]
+        newx5 = data[5] * 65536 + data[4] * 256 + data[3]
+        newx6 = data[8] * 65536 + data[7] * 256 + data[6]
+        newx7 = data[11] * 65536 + data[10] * 256 + data[9]
+
+        if (newx4 > math.pow(2,23)):
+            newx4 = newx4 - math.pow(2,24)
+
+        if (newx5 > math.pow(2,23)):
+            newx5 = newx5 - math.pow(2,24)
+
+        if (newx6 > math.pow(2,23)):
+            newx6 = newx6 - math.pow(2,24)
+
+        if (newx7 > math.pow(2,23)):
+            newx7 = newx7 - math.pow(2,24)
+
+        newx4 = newx4 * 5.3644*math.pow(10,-4)
+        newx5 = newx5 * 5.3644*math.pow(10,-4)
+        newx6 = newx6 * 5.3644*math.pow(10,-4)
+        newx7 = newx7 * 5.3644*math.pow(10,-4)
+        return newx6,newx7
+
+
+device = device_initiate(MAC_ADDR)
+device._prep_fired()
+
+
+
+plt.ion()
+fig=plt.figure()
+x=list()
+y=list()
+i=0
+while True:
+    data_raw = list(device.read_data())[:12]
+    newx6, newx7 = device.process_data(data_raw)
+    x.append(i)
+    y.append(newx6)
+
+    plt.scatter(i, float(newx6))
+    i += 1
+    plt.show()
+    plt.pause(0.0001)  # Note this correction
